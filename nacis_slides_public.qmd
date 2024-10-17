@@ -1,0 +1,488 @@
+---
+title: Creating beautiful interactive maps with R and JavaScript D3
+subtitle: An open-source workflow
+date: "2024-10-17"
+date-format: long 
+author: 
+  - "Henry Beimers"
+format:
+  revealjs:
+    theme: theme.scss
+    slide-number: true
+    incremental: false
+    hide-from-titleSlide: all
+    embed-resources: true
+    standalone: true
+revealjs-plugins:
+margin: 0.05
+filters:
+- reveal-header
+knitr:
+  opts_chunk:
+    echo: true 
+    eval: true
+    fig.align: center
+server: shiny    
+---
+
+```{r, include=FALSE}
+library(dplyr)
+library(readr)
+library(tidycensus)
+library(sf)
+library(raster)
+library(r2d3)
+library(elevatr)
+library(gt)
+library(shiny)
+
+options(width = 90)
+```
+
+## Agenda
+
+1.  Why R and D3?
+2.  When should I use *r2d3*?
+3.  Basics of *r2d3*
+4.  Examples
+5.  Additional Topics
+
+## *r2d3* is an R package that allows the user to generate D3 visualizations with R
+
+::: header
+Section 1: **Why R and D3?**
+:::
+
+**The D3 JavaScript library**
+
+-   **D**ata **D**riven **D**ocuments
+-   Industry standard for creating interactive graphics
+-   Used for creating custom interactive data visualizations
+
+**The *r2d3* R Package**
+
+-   Allows the programmer to pass data from R to a JavaScript file, and for that JavaScript file to render a graphic in R
+
+::: {.notes}
+R is a programming language designed for statistics and data analysis. R is excellent at data ingestion and transformation, and is widely used in the social sciences.
+
+Javascript is THE language for interactive data visualization on the web. D3 is a JavaScript library for data visualizations created by Mike Bostock, who formerly worked on graphics for the NY Times.
+
+the r2d3 R package allows all your data to be in R and passes it to javascript once its ready.
+
+Everything I will touch today is open-source and has a lot of documentation and examples on the web. You could run all of this on your own with an installation of Rstudio.
+
+By integrating the data processing capabilities of R with D3, your workflow from data to map becomes much more efficient, reproducible, and flexible
+:::
+
+## Use *r2d3* (*d3.js*) for complete control over your map’s appearance
+
+::: header
+Section 2: **When should I use *r2d3* for my maps?**
+:::
+
+::: {.notes}
+Here are some of the things D3 can do. D3 is extremely customizable and that its greatest advantage
+
+You have to tell it do do a lot but it can do almost anything
+:::
+
+## *r2d3* should be used when generating interactive, highly specialized maps
+
+::: header
+Section 2: **When should I use *r2d3* for my maps?**
+:::
+
+::::: columns
+::: {.column .fragment width="50%"}
+**For creating static maps in R**
+
+-   *ggplot2* if possible
+-   Use *r2d3* only if making a map requiring more customization
+:::
+
+::: {.column .fragment width="50%"}
+**For creating interactive graphics**
+
+-   Use leaflet in R or JavaScript if possible
+-   Advantages of *r2d3* over the *leaflet* library
+-   D3 better for data viz, adaptability, less traditional mapping
+:::
+:::::
+
+::: {.notes}
+There are many other ways to create maps in R.
+
+ggplot2 (which is also part of the tidyverse) is great for simple data visualizations of any kind, including maps, but it is pretty rigid and is difficult to use to produce a high-quality visual.
+
+For interactive maps in R, leaflet is great (originally for js, it has an R package also)
+- D3 is more adaptable where leaflet is specialized for traditional mapping
+- D3 is better for choropleth, heatmaps, etc. where leaflet favors popups and tooltips
+- D3 better for large datasets and integration with larger data dashboards
+:::
+
+## *r2d3* interactive graphics can be shared in any format that can run JavaScript
+
+::: header
+Section 2: **When should I use *r2d3* for my maps?**
+:::
+
+::::: columns
+::: {.column .fragment width="60%"}
+**D3 graphics can be displayed in HTML documents**
+
+-   Website
+-   Shiny App
+-   R markdown, quarto, or Shiny HTML document (i.e. flexdashboard R package)
+
+**D3 graphics are by default SVG graphics**
+
+-   Easier for 508 compliance
+:::
+
+::: {.column .fragment width="40%"}
+
+:::
+:::::
+
+::: {.notes}
+Here are some examples of the flexibility of integrating D3 maps using R
+
+The output of D3 is an svg, and the scaleable element of that is important
+Can fit anywhere (including mobile)
+you can also save it as a standalone html file
+:::
+
+## R to D3
+
+::: header
+Section 3: **Basics of** ***r2d3***
+:::
+
+Suppose you need to display a map of median home values for Pierce County, WA, but need to quickly see different levels of geographic aggregation within the county:
+
+-   Build an **interactive map** which can easily be toggled between geographic levels
+-   Include **tooltips** with GEOID and an estimate for median home value
+
+. . .
+
+```{r}
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(r2d3)
+```
+
+::: {.notes}
+This is an example of a common cartographic task for me. Often when conducting surveys we will use administrative data (in this case census bureau data) to supplement our survey sampling or results. The use case here might be a survey trying to identify respondents in areas with high property insurance rates who suffered property damage in a storm. I did a similar task for a survey in Lake Charles, LA, which was impacted by two hurricanes in 2020.
+
+We will only need to import these four R libraries to create the interactive map.
+
+Tidyverse is the most popular r package (somewhat in the way of r pandas, how we translate our data)
+
+Tidycensus is a wrapper for the census api
+
+Sf allows r to work with spatial data (like shapefiles)
+:::
+
+## From Data to Map
+
+::: header
+Section 3: **Basics of** ***r2d3***
+:::
+Get data at the census tract and block group level using `tidycensus`[^1]
+
+[^1]: *Source: ACS 5-year estimates 2018-2022*
+
+::::: {.columns}
+::: {.column width="60%"}
+```{.r code-line-numbers="|1|9|17"}
+map_data_cbg <- tidycensus::get_acs(geography = "cbg",
+                                    variables = "B25077_001",
+                                    state = "WA",
+                                    county = "Pierce",
+                                    geometry = TRUE) %>%
+  dplyr::select(GEOID, estimate, geometry) %>%
+  dplyr::mutate(level = "cbg")
+
+map_data_tract <- tidycensus::get_acs(geography = "tract",
+                                      variables = "B25077_001",
+                                      state = "WA",
+                                      county = "Pierce",
+                                      geometry = TRUE) %>%
+  dplyr::select(GEOID, estimate, geometry) %>%
+  dplyr::mutate(level = "tract")
+
+all_data <- bind_rows(map_data_cbg, map_data_tract)
+```
+:::
+
+::: {.column width="40%"}
+```{r, echo=FALSE}
+all_data <- readr::read_rds("map_data.rds")
+
+all_data %>% 
+  gt::gt() %>% 
+  gt::opt_interactive(use_compact_mode = TRUE, page_size_default = 8)
+```
+:::
+:::::
+
+::: {.notes}
+On the R side, you start by getting census data at the block group and tract level for Pierce County, WA with the variable for median home value, then combine the block group and tract data into one table. In under 20 lines of code all of your data prep is done!
+:::
+
+## The `r2d3()` function
+
+::: header
+Section 3: **Basics of** ***r2d3***
+:::
+```{.r code-line-numbers="|7-11"}
+shiny::selectInput("geogs", "Geography:", choices = c("cbg","tract"))
+shiny::selectInput("na_color", "NA color:", choices = c("gray","darkgray","lightgray"))
+
+r2d3::d3Output("choroMap")
+
+output$choroMap <- r2d3::renderD3({
+  r2d3::r2d3(data = all_data, 
+             script = "d3_map_example.js",
+             options = list(na_color = input$na_color,
+                            geog = input$geogs,
+                            zoom = TRUE))
+})
+```
+
+::: {.notes}
+And here is where the r2d3 function comes in.
+
+I want to bring your attention to just these few lines, which is all you need to run for the visualization. The rest are from the R shiny package the most popular way to build a website in R, which I've included just to highlight how the visualization can react to inputs in real-time using an R Shiny app.
+
+For r2d3 to work you need your input data table from R, a filepath to your D3 script (saved in the same directory), and some user-defined options which can be passed to the D3 script.
+
+ANY variable can be passed as an option to r2d3 (including other datasets)
+:::
+
+## The `r2d3()` function
+
+::: header
+Section 3: **Basics of** ***r2d3***
+:::
+
+```{r}
+#| context: data
+#| include: false
+all_data <- readr::read_rds("map_data.rds")
+```
+
+```{r, echo=FALSE}
+#| panel: input
+#| layout-ncol: 2
+selectInput("geogs", "Geography:", choices = c("cbg","tract"), selected = "tract")
+selectInput("na_color", "NA color:", choices = c("gray","darkgray","lightgray"))
+```
+
+```{r, echo=FALSE}
+#| panel: center
+r2d3::d3Output("choroMap")
+```
+
+```{r}
+#| context: server
+output$choroMap <- r2d3::renderD3({
+  r2d3::r2d3(data = all_data, 
+             script = "d3_map_example.js",
+             options = list(na_color = input$na_color,
+                            geog = input$geogs,
+                            zoom = TRUE))
+})
+```
+
+::: {.notes}
+Finally we have our map here.
+
+These two dropdown inputs affect the user-defined option in the r2d3 script, altering the level of geography we want to see, and the color of the NA values (just as an example)
+
+As you can see there is also zoom/pan and tooltip functionality.
+
+By the way I made this slideshow in R quarto which allows me to add interactivity to the slides
+:::
+
+## JavaScript Code
+
+::: header
+Section 3: **Basics of** ***r2d3***
+:::
+
+```{.js code-line-numbers="|2|5-18|21-22|25-26|40-50"}
+// Remove previous svg
+svg.selectAll("g").remove();
+
+// Transform data into json-style format
+var filteredData = {
+  "type": "FeatureCollection",
+  "features": data
+    .filter(d => d.level === options.geog) // Filter to the selected geography
+    .map(d => ({
+      "type": "Feature",
+      "geometry": d.geometry,
+      "properties": {
+        "GEOID": d.GEOID,
+        "estimate": d.estimate,
+        "level": d.level,
+      }
+    }))
+};
+
+// Define the D3 map projection
+var my_projection = d3.geoMercator().fitSize([width, height], filteredData);
+var path = d3.geoPath().projection(my_projection);
+
+// Create a blue color ramp for our target variable
+const colorScale = d3.scaleSequential(d3.interpolateBlues)
+  .domain([0, d3.max(filteredData.features, d => d.properties.estimate)]);
+  
+// Define zoom behavior
+var zoom = d3.zoom()
+  .scaleExtent([1, 8])
+  .on("zoom", zoomed);
+// Apply zoom behavior to the SVG
+svg.call(zoom);
+
+// Create a group to hold the map paths (this will help with zooming and panning)
+var g = svg.append("g");
+
+
+// Create the map
+g.selectAll('path')
+  .data(filteredData.features)
+  .enter()
+  .append('path')
+  .attr('d', path)
+  .attr('fill', d => {
+    // check if estimate is valid, otherwise set to NA color
+    return d.properties.estimate != null && !isNaN(d.properties.estimate) 
+      ? colorScale(d.properties.estimate) 
+      : options.na_color;
+  })
+  .on("mouseover", function(event, d) {
+    // Show the tooltip on mouseover
+    tooltip.transition().duration(200).style("opacity", 1);
+    tooltip.html("GEOID: " + d.properties.GEOID + "<br>Estimate: " + d.properties.estimate)
+      .style("left", (event.pageX + 10) + "px")
+      .style("top", (event.pageY - 28) + "px");
+    
+    d3.select(this)
+    .style("stroke", "black")
+    .style("stroke-width", 1.5);
+  })
+  .on("mousemove", function(event) {
+    // Move the tooltip with the mouse
+    tooltip.style("left", (event.pageX + 10) + "px")
+      .style("top", (event.pageY - 28) + "px");
+  })
+  .on("mouseout", function() {
+    // Hide the tooltip on mouseout
+    tooltip.transition().duration(500).style("opacity", 0);
+    
+    d3.select(this).style("stroke", "none");
+  });
+  
+// Add a tooltip div to the body
+var tooltip = d3.select("body")
+  .append("div")
+  .attr("class", "tooltip")
+  .style("position", "absolute")
+  .style("padding", "8px")
+  .style("background-color", "rgba(0, 0, 0, 0.6)")
+  .style("color", "#fff")
+  .style("border-radius", "4px")
+  .style("pointer-events", "none")
+  .style("opacity", 0)
+  // Make sure tooltip is in front of all other elements
+  .style("z-index", "1000");
+
+// Zoom function
+function zoomed(event) {
+  if (options.zoom === true) {
+    g.attr("transform", event.transform);
+  }  
+}
+```
+
+::: {.notes}
+I just want to give you a peek at the D3 script and highlight some of the important parts.
+
+First is a line to remove any previously rendered visualizations (otherwise they will just stack on top of each other after every dropdown selection). "g" stands for group and is kind of the base unit for D3.
+
+Next is the data transformation. When r passes a dataframe to r2d3 it comes out as a json object formatted by columns, this transforms it into more of a row-wise format. As you can see the filter function within the data uses our user-defined option for the geography (whether we want to see tracts or block groups).
+
+Next we use built-in D3 functions to define our projection and path.
+
+We also create a variable for our color scale (here I used "Blues" palette from colorbrewer. All colorbrewer palettes come with D3 by default)
+
+And here is where the map is actually drawn, calling the palette variable for the fill color. I'm setting the fill attribute, which is the colors of my polygons, using a function based on the estimate variable from the data
+
+The rest of the code contains the functionality for the zoom/pan and tooltip, but this is all you need just to see the data mapped.
+
+D3 has a lot of convenience functions for common mapping tasks.
+
+Perhaps a topic for another presentation, but your D3 script can talk back to R (for example if you click a shape it sends the value back to R). Useful for callout boxes or controlling other visuals on the page.
+:::
+
+## *Raster to Vector*
+
+::: header
+Section 4: **Examples**
+:::
+
+::: {.notes}
+Because D3 is based on vector graphics, maps using vector data (our traditional points, lines, and polygons) are favored. However, there are some nice ways to use raster data as well.
+
+Here is an example of a digital elevation model (also centered on Pierce County) I transformed into contour lines using the d3.countour() function. You can also easily alter the density of the lines or color using the user options from the r2d3 function.
+:::
+
+## <https://livecrimetracker.norc.org>
+
+::: header
+Section 4: **Examples**
+:::
+
+::: {.notes}
+Here are also a couple of examples of projects where I've used r2d3 at NORC. It's great for this live crime tracker dashboard (built entirely in R Shiny) where we need to update the data on a daily basis with data from dozens of cities.
+
+all the data work here is in R, JavaScript is how I visualize it
+:::
+
+## <https://dementiadatahub.org>
+
+::: header
+Section 4: **Examples**
+:::
+
+::: {.notes}
+I also used r2d3 in this dashboard which is like my Pierce County example x100. in recent years We have created many dashboards like this for public health projects.
+
+Again, here the User can control filters and inputs from the sidebar for data in R, which is then sent to D3
+:::
+
+# Resources {.headless background-image="images/splatter_white.png" style="max-width: 55%"}
+
+-   [*r2d3* Documentation](https://rstudio.github.io/r2d3/index.html)
+-   [*r2d3* with *Shiny*](https://rstudio.github.io/r2d3/articles/shiny.html)
+-   [Leaflet + D3](https://bost.ocks.org/mike/leaflet/)
+-   [DEM to Contour](https://observablehq.com/@sw1227/dem-to-contour-by-d3)
+-   http://square.github.io/intro-to-d3/
+-   https://www.dashingd3js.com/d3-tutorial
+-   https://www.d3indepth.com/ 
+
+::: {.notes}
+Finally I want to include some links to resources I have found helpful in my R and D3 journey. It may seem overwhelming at first, but again there are tons of resources out there and a ton of public data and anyone can start to make their own customizable maps this way.
+:::
+
+# Thank you.
+
+## *https://drive.google.com/drive/folders/1NrlAKRdM8tSmcA4cTk7mqJKJ5q_vnLbd?usp=sharing*
+
+::: {.notes}
+Here is a link to the slides and all of the data if you want to do it yourself
+:::
