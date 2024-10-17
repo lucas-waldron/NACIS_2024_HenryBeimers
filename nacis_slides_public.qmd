@@ -481,7 +481,7 @@ Finally I want to include some links to resources I have found helpful in my R a
 
 # Thank you.
 
-## *https://drive.google.com/drive/folders/1NrlAKRdM8tSmcA4cTk7mqJKJ5q_vnLbd?usp=sharing*
+## *https://github.com/hbeimers/NACIS_2024_HenryBeimers*
 
 ::: {.notes}
 Here is a link to the slides and all of the data if you want to do it yourself
